@@ -8,7 +8,7 @@
 
 ### Fixed
 
-- Send: file immediately persisted outbound text messages under the canonical phone-number chat instead of a separate LID chat.
+- Send: file immediately persisted outbound text messages under the canonical phone-number chat instead of a separate LID chat. (#319 - thanks @Lucas-Kim-J)
 
 ### Chore
 
