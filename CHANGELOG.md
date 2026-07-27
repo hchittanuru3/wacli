@@ -6,6 +6,10 @@
 
 - Sync: add opt-in receipt and chat-presence webhook events while keeping legacy message payloads unchanged. (#315 - thanks @Jaime-data)
 
+### Fixed
+
+- Send: file immediately persisted outbound text messages under the canonical phone-number chat instead of a separate LID chat.
+
 ### Chore
 
 - Dependencies: update `whatsmeow`, terminal support, GraphQL parsing, and supporting Go modules.

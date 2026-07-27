@@ -166,12 +166,25 @@ func newSendTextCmd(flags *rootFlags) *cobra.Command {
 }
 
 func persistOutboundText(ctx context.Context, a *app.App, chat types.JID, msgID, text string, now time.Time) {
-	chatName := a.WA().ResolveChatName(ctx, chat, "")
-	if err := a.DB().UpsertChat(chat.String(), chatKindFromJID(chat), chatName, now); err != nil {
+	persistOutboundTextWith(ctx, a.DB(), a.WA(), chat, msgID, text, now)
+}
+
+type outboundTextResolver interface {
+	ResolveChatName(ctx context.Context, chat types.JID, pushName string) string
+	ResolveLIDToPN(ctx context.Context, jid types.JID) types.JID
+}
+
+func persistOutboundTextWith(ctx context.Context, db *store.DB, resolver outboundTextResolver, chat types.JID, msgID, text string, now time.Time) {
+	chat = resolver.ResolveLIDToPN(ctx, chat)
+	if chat.Server == types.DefaultUserServer {
+		chat = chat.ToNonAD()
+	}
+	chatName := resolver.ResolveChatName(ctx, chat, "")
+	if err := db.UpsertChat(chat.String(), chatKindFromJID(chat), chatName, now); err != nil {
 		warnOutboundPersist("chat", msgID, err)
 		return
 	}
-	if err := a.DB().UpsertMessage(store.UpsertMessageParams{
+	if err := db.UpsertMessage(store.UpsertMessageParams{
 		ChatJID:    chat.String(),
 		ChatName:   chatName,
 		MsgID:      msgID,

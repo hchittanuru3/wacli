@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"strings"
 	"testing"
@@ -80,6 +81,22 @@ func (s *recordingTextSender) ResolvePNToLID(_ context.Context, _ types.JID) typ
 	return s.linkedLID
 }
 
+type outboundTextResolverStub struct {
+	lid types.JID
+	pn  types.JID
+}
+
+func (r outboundTextResolverStub) ResolveChatName(_ context.Context, chat types.JID, _ string) string {
+	return chat.String()
+}
+
+func (r outboundTextResolverStub) ResolveLIDToPN(_ context.Context, jid types.JID) types.JID {
+	if jid.ToNonAD() == r.lid {
+		return r.pn
+	}
+	return jid
+}
+
 func requireExtendedText(t *testing.T, msg *waProto.Message) *waProto.ExtendedTextMessage {
 	t.Helper()
 	if msg.GetEphemeralMessage() != nil {
@@ -101,6 +118,71 @@ func TestResolveRecipientFallsBackToFormattedPhone(t *testing.T) {
 	}
 	if got.String() != "15551234567@s.whatsapp.net" {
 		t.Fatalf("recipient = %q", got.String())
+	}
+}
+
+func TestSendTextToOwnPNTargetsRegisteredLID(t *testing.T) {
+	pn := types.NewJID("15551234567", types.DefaultUserServer)
+	lid := types.NewJID("999123456789", types.HiddenUserServer)
+	warmup := &mockUserInfoClient{
+		isOnWhatsApp: func(_ context.Context, phones []string) ([]types.IsOnWhatsAppResponse, error) {
+			if len(phones) != 1 || phones[0] != "+15551234567" {
+				t.Fatalf("registration lookup = %v", phones)
+			}
+			return []types.IsOnWhatsAppResponse{{JID: lid, PhoneNumber: pn, IsIn: true}}, nil
+		},
+		getUserInfo: func(_ context.Context, jids []types.JID) (map[types.JID]types.UserInfo, error) {
+			if len(jids) != 1 || jids[0] != lid {
+				t.Fatalf("user info target = %v, want %s", jids, lid)
+			}
+			return nil, nil
+		},
+	}
+
+	var stderr bytes.Buffer
+	target := warmupRecipient(context.Background(), warmup, pn, &stderr)
+	sender := &recordingTextSender{}
+	if _, err := sendTextMessageWithSender(context.Background(), sender, openSendTestDB(t), target, "self-test", "", "", nil, nil, textEphemeralOptions{}); err != nil {
+		t.Fatalf("sendTextMessageWithSender: %v", err)
+	}
+	if sender.textRecipient != lid {
+		t.Fatalf("send target = %s, want registered LID %s", sender.textRecipient, lid)
+	}
+}
+
+func TestPersistOutboundTextCanonicalizesSelfLIDToPN(t *testing.T) {
+	db := openSendTestDB(t)
+	pn := types.NewJID("15551234567", types.DefaultUserServer)
+	lid := types.NewJID("999123456789", types.HiddenUserServer)
+	now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
+
+	if err := db.UpsertChat(pn.String(), "dm", "Message Yourself", now.Add(-time.Minute)); err != nil {
+		t.Fatalf("UpsertChat inbound: %v", err)
+	}
+	if err := db.UpsertMessage(store.UpsertMessageParams{
+		ChatJID:   pn.String(),
+		MsgID:     "inbound-id",
+		Timestamp: now.Add(-time.Minute),
+		Text:      "from phone",
+	}); err != nil {
+		t.Fatalf("UpsertMessage inbound: %v", err)
+	}
+
+	persistOutboundTextWith(context.Background(), db, outboundTextResolverStub{lid: lid, pn: pn}, lid, "outbound-id", "self-test", now)
+
+	stored, err := db.GetMessage(pn.String(), "outbound-id")
+	if err != nil {
+		t.Fatalf("GetMessage PN outbound: %v", err)
+	}
+	if stored.ChatJID != pn.String() || !stored.FromMe || stored.Text != "self-test" {
+		t.Fatalf("stored outbound = %+v", stored)
+	}
+	chats, err := db.ListChats("", 10)
+	if err != nil {
+		t.Fatalf("ListChats: %v", err)
+	}
+	if len(chats) != 1 || chats[0].JID != pn.String() {
+		t.Fatalf("chats = %+v, want only canonical PN %s", chats, pn)
 	}
 }
 
