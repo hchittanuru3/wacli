@@ -4,6 +4,7 @@
 
 ### Added
 
+- Sync: add opt-in `--send-spacing` fixed or randomized pacing for sends delegated to a running follow process. (#318 - thanks @cohnen)
 - Sync: add opt-in receipt and chat-presence webhook events while keeping legacy message payloads unchanged. (#315 - thanks @Jaime-data)
 
 ### Fixed
