@@ -21,6 +21,12 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 )
 
+// loggedOutRecoveryHint is the operator-facing recovery sequence for a revoked
+// session. sync deliberately keeps the local device record (see the LoggedOut
+// case), and `auth --phone` short-circuits while that record exists — so
+// re-pairing needs the explicit local logout first.
+const loggedOutRecoveryHint = "To re-authenticate, run `wacli auth logout` to clear the local session, then `wacli auth --phone` to pair again."
+
 func newMediaEnqueuer(ctx context.Context, queue *mediaQueue) func(chatJID, msgID string) {
 	return func(chatJID, msgID string) {
 		if strings.TrimSpace(chatJID) == "" || strings.TrimSpace(msgID) == "" {
@@ -46,7 +52,7 @@ type syncPresence struct {
 	cleanupStarted bool
 }
 
-func (a *App) addSyncEventHandler(ctx context.Context, opts SyncOptions, messagesStored, lastEvent *atomic.Int64, disconnected chan<- struct{}, staleReconnect chan<- staleReconnectRequest, enqueueMedia func(string, string), enqueueWebhook func(syncWebhookEvent), limits *syncStorageLimits, ps *syncPresence, mediaQ *mediaQueue) uint32 {
+func (a *App) addSyncEventHandler(ctx context.Context, opts SyncOptions, messagesStored, lastEvent *atomic.Int64, disconnected chan<- struct{}, loggedOut chan<- struct{}, staleReconnect chan<- staleReconnectRequest, enqueueMedia func(string, string), enqueueWebhook func(syncWebhookEvent), limits *syncStorageLimits, ps *syncPresence, mediaQ *mediaQueue) uint32 {
 	var panicCount atomic.Int64
 	var appStateRecoveries sync.Map
 	if enqueueWebhook == nil {
@@ -155,6 +161,21 @@ func (a *App) addSyncEventHandler(ctx context.Context, opts SyncOptions, message
 			}
 		case *events.AppStateSyncError:
 			a.handleAppStateSyncError(ctx, v, &appStateRecoveries)
+		case *events.LoggedOut:
+			// WhatsApp revoked this session (linked device removed on the phone,
+			// or a logout/ban). whatsmeow reconnects on Disconnected, so without
+			// this the follow loop spins forever against a dead session. Surface
+			// the logout and signal the loop to stop instead of reconnecting.
+			a.emitOrPrint("logged_out", map[string]any{
+				"reason":      v.Reason.String(),
+				"reason_code": int(v.Reason),
+				"on_connect":  v.OnConnect,
+				"recovery":    loggedOutRecoveryHint,
+			}, "\nLogged out of WhatsApp (%s). Stopping sync.\n%s\n", v.Reason.String(), loggedOutRecoveryHint)
+			select {
+			case loggedOut <- struct{}{}:
+			default:
+			}
 		}
 	})
 }

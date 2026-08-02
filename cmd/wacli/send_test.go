@@ -45,6 +45,7 @@ type recordingTextSender struct {
 	linkedJID       string
 	linkedLID       types.JID
 	resolveLIDCalls int
+	lidToPN         types.JID
 }
 
 func (s *recordingTextSender) SendText(_ context.Context, to types.JID, text string) (types.MessageID, error) {
@@ -83,6 +84,13 @@ func (s *recordingTextSender) LinkedLID() string {
 func (s *recordingTextSender) ResolvePNToLID(_ context.Context, _ types.JID) types.JID {
 	s.resolveLIDCalls++
 	return s.linkedLID
+}
+
+func (s *recordingTextSender) ResolveLIDToPN(_ context.Context, jid types.JID) types.JID {
+	if !s.lidToPN.IsEmpty() {
+		return s.lidToPN
+	}
+	return jid
 }
 
 type outboundTextResolverStub struct {
@@ -465,7 +473,7 @@ func TestBuildTextReplyContextInfo(t *testing.T) {
 				t.Fatalf("UpsertMessage: %v", err)
 			}
 
-			got, err := buildTextReplyContextInfo(db, tc.chat, "quoted", "", self)
+			got, err := buildTextReplyContextInfo(db, tc.chat, types.EmptyJID, "quoted", "", self)
 			if err != nil {
 				t.Fatalf("buildTextReplyContextInfo: %v", err)
 			}
@@ -1124,5 +1132,97 @@ func TestBuildTextMessageAttachesLinkPreview(t *testing.T) {
 	}
 	if string(ext.GetJPEGThumbnail()) != "jpeg" {
 		t.Fatalf("thumbnail = %q", string(ext.GetJPEGThumbnail()))
+	}
+}
+
+func TestBuildTextReplyContextInfoFindsQuoteUnderChatAlias(t *testing.T) {
+	pn := types.NewJID("51918505715", types.DefaultUserServer)
+	lid := types.NewJID("46922702278894", types.HiddenUserServer)
+
+	tests := []struct {
+		name      string
+		storedIn  types.JID
+		addressed types.JID
+	}{
+		{name: "history under phone JID, addressed by LID", storedIn: pn, addressed: lid},
+		{name: "history under LID, addressed by phone JID", storedIn: lid, addressed: pn},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			db := openSendTestDB(t)
+			if err := db.UpsertChat(tc.storedIn.String(), "chat", "alias chat", time.Now()); err != nil {
+				t.Fatalf("UpsertChat: %v", err)
+			}
+			if err := db.UpsertMessage(store.UpsertMessageParams{
+				ChatJID:   tc.storedIn.String(),
+				MsgID:     "quoted",
+				SenderJID: tc.storedIn.String(),
+				Timestamp: time.Now(),
+				Text:      "original",
+			}); err != nil {
+				t.Fatalf("UpsertMessage: %v", err)
+			}
+
+			if _, err := buildTextReplyContextInfo(db, tc.addressed, types.EmptyJID, "quoted", "", ""); err == nil {
+				t.Fatal("expected the un-aliased lookup to fail")
+			}
+
+			got, err := buildTextReplyContextInfo(db, tc.addressed, tc.storedIn, "quoted", "", "")
+			if err != nil {
+				t.Fatalf("alias lookup should resolve the quote: %v", err)
+			}
+			if got == nil || got.GetStanzaID() != "quoted" {
+				t.Fatalf("context info = %+v, want StanzaID=quoted", got)
+			}
+			if got.GetParticipant() != tc.storedIn.String() {
+				t.Fatalf("participant = %q, want %q", got.GetParticipant(), tc.storedIn.String())
+			}
+		})
+	}
+}
+
+func TestSendTextReplyToOwnMessageUnderChatAliasUsesLIDParticipant(t *testing.T) {
+	db := openSendTestDB(t)
+	pn := types.NewJID("51918505715", types.DefaultUserServer)
+	lid := types.NewJID("46922702278894", types.HiddenUserServer)
+	linkedPN := types.NewJID("15550000000", types.DefaultUserServer)
+	linkedLID := types.NewJID("99887766554433", types.HiddenUserServer)
+
+	if err := db.UpsertChat(pn.String(), "dm", "Alice", time.Now()); err != nil {
+		t.Fatalf("UpsertChat: %v", err)
+	}
+	if err := db.UpsertMessage(store.UpsertMessageParams{
+		ChatJID:   pn.String(),
+		MsgID:     "quoted",
+		Timestamp: time.Now(),
+		FromMe:    true,
+		Text:      "my earlier message",
+	}); err != nil {
+		t.Fatalf("UpsertMessage: %v", err)
+	}
+
+	sender := &recordingTextSender{
+		linkedJID: linkedPN.String(),
+		linkedLID: linkedLID,
+		lidToPN:   pn,
+	}
+
+	if _, err := sendTextMessageWithSender(context.Background(), sender, db, lid, "reply", "quoted", "", nil, nil, textEphemeralOptions{}); err != nil {
+		t.Fatalf("sendTextMessageWithSender: %v", err)
+	}
+
+	if sender.protoMsg == nil {
+		t.Fatal("no proto message sent")
+	}
+	ctxInfo := sender.protoMsg.GetExtendedTextMessage().GetContextInfo()
+	if ctxInfo == nil {
+		t.Fatal("no context info on the sent message")
+	}
+	if ctxInfo.GetStanzaID() != "quoted" {
+		t.Fatalf("stanza ID = %q, want quoted", ctxInfo.GetStanzaID())
+	}
+	if ctxInfo.GetParticipant() != linkedLID.String() {
+		t.Fatalf("participant = %q, want the linked LID %q", ctxInfo.GetParticipant(), linkedLID.String())
 	}
 }
