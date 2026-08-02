@@ -14,6 +14,7 @@
 ### Chore
 
 - Dependencies: update `whatsmeow`, terminal support, GraphQL parsing, and supporting Go modules.
+- Tooling: update the pinned pnpm version from 10.34.4 to 11.18.0.
 - Build: migrate `sqlc` code generator to Go 1.24+ `go tool` directive and bump project toolchain requirement to Go 1.26.5. (#313 - thanks @thedavidweng)
 - Build: standardize the Makefile's build, check, snapshot, and verified local-release targets across the crawler repositories.
 - Release: publish v0.15.0 under a one-time clean-VM Gatekeeper waiver, with retroactive VM proof still required when hardware returns, and verify preserved drafts against their release commit's Go toolchain.
