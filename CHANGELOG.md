@@ -1,6 +1,18 @@
 # Changelog
 
-## 0.15.3 - Unreleased
+## 0.16.0 - Unreleased
+
+### Added
+
+- Locations: send native WhatsApp location pins and retain incoming static or live coordinates in local history with full purge, cleanup, and identity-migration lifecycle support. (#338 - thanks @0xlucuma)
+
+### Fixed
+
+- Groups: preserve message-derived chat activity when refreshing group metadata so `chats list` ordering is not replaced by refresh time. (#340 - thanks @goutamadwant)
+
+### Chore
+
+- Dependencies: update `go-sqlite3`, `whatsmeow`, database tooling, gRPC, WebAssembly, telemetry, and supporting Go modules.
 
 ## 0.15.2 - 2026-08-02
 
