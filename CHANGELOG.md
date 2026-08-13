@@ -1,5 +1,7 @@
 # Changelog
 
+## Unreleased
+
 ## v0.17.0 - 2026-08-13
 
 **Highlight:** group identities are finally stable — resolvable LIDs are
