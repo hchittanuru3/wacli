@@ -1,15 +1,18 @@
 # Changelog
 
-## Unreleased
+## v0.17.0 - 2026-08-13
 
-### Added
-
-- Sync: identify unhandled payload types when content extraction produces a placeholder, with bounded diagnostics during history replay. (#344 - thanks @dvainrub)
-- Messages: expose persisted edited state consistently in list, search, show, and context JSON output. (#347 - thanks @dvainrub)
+**Highlight:** group identities are finally stable — resolvable LIDs are
+normalized everywhere they appear, and existing stores are repaired on upgrade.
 
 ### Fixed
 
 - Sync: normalize resolvable LIDs in group owners, participants, and quoted senders, including historical store repair. (#348 - thanks @hchittanuru3)
+
+### Added
+
+- Messages: expose persisted edited state consistently in list, search, show, and context JSON output. (#347 - thanks @dvainrub)
+- Sync: identify unhandled payload types when content extraction produces a placeholder, with bounded diagnostics during history replay. (#344 - thanks @dvainrub)
 
 ### Chore
 
