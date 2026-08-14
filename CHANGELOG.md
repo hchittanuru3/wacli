@@ -1,12 +1,11 @@
 # Changelog
 
-## Unreleased
+## v0.17.1 - 2026-08-14
 
 ### Fixed
 
 - Auth: stop with an actionable error when WhatsApp requires unsupported passkey pairing instead of silently rotating unusable QR codes. (#355 - thanks @Avg8888)
 - Sync: normalize resolvable LIDs in message, receipt, and chat-presence webhook payloads to match stored identities. (#352 - thanks @hchittanuru3)
-
 ## v0.17.0 - 2026-08-13
 
 **Highlight:** group identities are finally stable — resolvable LIDs are
