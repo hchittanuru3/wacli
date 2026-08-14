@@ -12,7 +12,7 @@ import (
 
 // SyncWebhookEventKind identifies the selected webhook event kind. New event
 // payloads carry it as "EventType"; message payloads deliberately omit it to
-// preserve the established webhook body byte-for-byte.
+// preserve the established webhook shape.
 type SyncWebhookEventKind string
 
 const (

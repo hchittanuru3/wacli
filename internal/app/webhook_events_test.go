@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -227,6 +229,115 @@ func TestMessageWebhookPayloadMatchesLegacyBody(t *testing.T) {
 	}
 	if !bytes.Equal(got, legacy) {
 		t.Fatalf("message payload changed\ngot:  %s\nwant: %s", got, legacy)
+	}
+}
+
+func TestSyncWebhookPayloadNormalizesResolvableLIDs(t *testing.T) {
+	a := newTestApp(t)
+	f := newFakeWA()
+	a.wa = f
+
+	lid := types.JID{User: "999123456789", Server: types.HiddenUserServer}
+	pn := types.JID{User: "15551234567", Server: types.DefaultUserServer}
+	f.lids[lid] = pn
+	ctx := context.Background()
+
+	message := wa.ParsedMessage{
+		Chat:             lid,
+		ID:               "m-lid",
+		SenderJID:        lid.String(),
+		ReplyToSenderJID: lid.String(),
+		PollVote: &wa.PollVoteRef{
+			PollChatJID:   lid.String(),
+			PollSenderJID: lid.String(),
+		},
+		PollAdd: &wa.PollAddOptionRef{
+			PollChatJID:   lid.String(),
+			PollSenderJID: lid.String(),
+		},
+		Call: &wa.ParsedCallEvent{
+			Chat:      lid,
+			SenderJID: lid.String(),
+			Participants: []wa.ParsedCallParticipant{{
+				JID: lid.String(),
+			}},
+		},
+	}
+	assertSyncWebhookPayloadJIDs(t, a.newSyncWebhookEventPayload(ctx, syncWebhookEvent{
+		Kind:    SyncWebhookEventMessage,
+		Message: message,
+	}), pn.String(), []string{
+		"Chat", "SenderJID", "ReplyToSenderJID",
+		"PollVote.PollChatJID", "PollVote.PollSenderJID",
+		"PollAdd.PollChatJID", "PollAdd.PollSenderJID",
+		"Call.Chat", "Call.SenderJID", "Call.Participants.0.JID",
+	})
+
+	assertSyncWebhookPayloadJIDs(t, a.newSyncWebhookEventPayload(ctx, syncWebhookEvent{
+		Kind: SyncWebhookEventReceipt,
+		Receipt: syncWebhookReceipt{
+			Chat:       lid,
+			Sender:     lid,
+			MessageIDs: []string{"m-lid"},
+			Type:       "read",
+		},
+	}), pn.String(), []string{"Chat", "Sender"})
+
+	assertSyncWebhookPayloadJIDs(t, a.newSyncWebhookEventPayload(ctx, syncWebhookEvent{
+		Kind: SyncWebhookEventChatPresence,
+		Presence: syncWebhookChatPresence{
+			Chat:   lid,
+			Sender: lid,
+			State:  "composing",
+		},
+	}), pn.String(), []string{"Chat", "Sender"})
+}
+
+func TestSyncWebhookPayloadPreservesUnresolvedLIDs(t *testing.T) {
+	a := newTestApp(t)
+	a.wa = newFakeWA()
+	lid := types.JID{User: "999123456789", Server: types.HiddenUserServer}
+
+	assertSyncWebhookPayloadJIDs(t, a.newSyncWebhookEventPayload(context.Background(), syncWebhookEvent{
+		Kind: SyncWebhookEventReceipt,
+		Receipt: syncWebhookReceipt{
+			Chat:       lid,
+			Sender:     lid,
+			MessageIDs: []string{"m-lid"},
+			Type:       "read",
+		},
+	}), lid.String(), []string{"Chat", "Sender"})
+}
+
+func assertSyncWebhookPayloadJIDs(t *testing.T, payload any, want string, paths []string) {
+	t.Helper()
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal webhook payload: %v", err)
+	}
+	var decoded any
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatalf("unmarshal webhook payload: %v", err)
+	}
+	for _, path := range paths {
+		value := decoded
+		for _, part := range strings.Split(path, ".") {
+			switch current := value.(type) {
+			case map[string]any:
+				value = current[part]
+			case []any:
+				index, err := strconv.Atoi(part)
+				if err != nil || index >= len(current) {
+					t.Fatalf("payload path %s is invalid in %s", path, body)
+				}
+				value = current[index]
+			default:
+				t.Fatalf("payload path %s is invalid in %s", path, body)
+			}
+		}
+		if value != want {
+			t.Fatalf("payload %s = %v, want %q: %s", path, value, want, body)
+		}
 	}
 }
 
@@ -454,6 +565,39 @@ func TestWebhookEventsOptInDeliversAllThreeKinds(t *testing.T) {
 	for _, want := range []string{"message", "receipt", "chat_presence"} {
 		if !seen[want] {
 			t.Fatalf("missing %s event, saw %v", want, seen)
+		}
+	}
+}
+
+func TestWebhookEventsNormalizeResolvableLIDsBeforeDelivery(t *testing.T) {
+	lid := types.JID{User: "999123456789", Server: types.HiddenUserServer}
+	pn := types.JID{User: "15551234567", Server: types.DefaultUserServer}
+	rec := emitWebhookEvents(t, "message,receipt,chat_presence", func(f *fakeWA) {
+		f.lids[lid] = pn
+
+		message := testLiveMessageEvent()
+		message.Info.Chat = lid
+		message.Info.Sender = lid
+		f.emit(message)
+
+		receipt := testReceiptEvent()
+		receipt.Chat = lid
+		receipt.Sender = lid
+		f.emit(receipt)
+
+		presence := testChatPresenceEvent()
+		presence.Chat = lid
+		presence.Sender = lid
+		f.emit(presence)
+	})
+
+	for range 3 {
+		body := rec.next(t)
+		if bytes.Contains(body, []byte(types.HiddenUserServer)) {
+			t.Fatalf("webhook payload retained a raw LID: %s", body)
+		}
+		if !bytes.Contains(body, []byte(pn.String())) {
+			t.Fatalf("webhook payload missing resolved phone JID %q: %s", pn, body)
 		}
 	}
 }

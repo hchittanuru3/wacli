@@ -20,6 +20,7 @@ import (
 
 	"github.com/openclaw/wacli/internal/linkpreview"
 	"github.com/openclaw/wacli/internal/wa"
+	"go.mau.fi/whatsmeow/types"
 )
 
 var syncWebhookPrivateHTTPClient = &http.Client{
@@ -180,20 +181,24 @@ func (a *App) postSyncWebhookEvent(ctx context.Context, opts SyncOptions, evt sy
 func (a *App) newSyncWebhookEventPayload(ctx context.Context, evt syncWebhookEvent) any {
 	switch evt.Kind {
 	case SyncWebhookEventReceipt:
-		return syncWebhookReceiptPayload{EventType: SyncWebhookEventReceipt, syncWebhookReceipt: evt.Receipt}
+		receipt := evt.Receipt
+		receipt.Chat = a.canonicalWebhookJID(ctx, receipt.Chat)
+		receipt.Sender = a.canonicalWebhookJID(ctx, receipt.Sender)
+		return syncWebhookReceiptPayload{EventType: SyncWebhookEventReceipt, syncWebhookReceipt: receipt}
 	case SyncWebhookEventChatPresence:
-		return syncWebhookChatPresencePayload{EventType: SyncWebhookEventChatPresence, syncWebhookChatPresence: evt.Presence}
+		presence := evt.Presence
+		presence.Chat = a.canonicalWebhookJID(ctx, presence.Chat)
+		presence.Sender = a.canonicalWebhookJID(ctx, presence.Sender)
+		return syncWebhookChatPresencePayload{EventType: SyncWebhookEventChatPresence, syncWebhookChatPresence: presence}
 	default:
 		return a.newSyncWebhookPayload(ctx, evt.Message)
 	}
 }
 
 func (a *App) newSyncWebhookPayload(ctx context.Context, pm wa.ParsedMessage) syncWebhookPayload {
+	pm = a.canonicalWebhookMessage(ctx, pm)
 	payload := syncWebhookPayload{ParsedMessage: pm}
 	chatJID := canonicalJIDString(pm.Chat)
-	if a.wa != nil {
-		chatJID = canonicalJIDString(a.canonicalStoreJID(ctx, pm.Chat))
-	}
 	if chatJID != "" && a.db != nil {
 		chat, err := a.db.GetChat(chatJID)
 		if err != nil {
@@ -202,6 +207,55 @@ func (a *App) newSyncWebhookPayload(ctx context.Context, pm wa.ParsedMessage) sy
 		payload.ChatName = chat.Name
 	}
 	return payload
+}
+
+func (a *App) canonicalWebhookMessage(ctx context.Context, pm wa.ParsedMessage) wa.ParsedMessage {
+	pm.Chat = a.canonicalWebhookJID(ctx, pm.Chat)
+	pm.SenderJID = a.canonicalWebhookJIDString(ctx, pm.SenderJID)
+	pm.ReplyToSenderJID = a.canonicalWebhookJIDString(ctx, pm.ReplyToSenderJID)
+
+	if pm.PollVote != nil {
+		pollVote := *pm.PollVote
+		pollVote.PollChatJID = a.canonicalWebhookJIDString(ctx, pollVote.PollChatJID)
+		pollVote.PollSenderJID = a.canonicalWebhookJIDString(ctx, pollVote.PollSenderJID)
+		pm.PollVote = &pollVote
+	}
+	if pm.PollAdd != nil {
+		pollAdd := *pm.PollAdd
+		pollAdd.PollChatJID = a.canonicalWebhookJIDString(ctx, pollAdd.PollChatJID)
+		pollAdd.PollSenderJID = a.canonicalWebhookJIDString(ctx, pollAdd.PollSenderJID)
+		pm.PollAdd = &pollAdd
+	}
+	if pm.Call != nil {
+		call := *pm.Call
+		call.Chat = pm.Chat
+		if call.SenderJID == "" {
+			call.SenderJID = pm.SenderJID
+		} else {
+			call.SenderJID = a.canonicalWebhookJIDString(ctx, call.SenderJID)
+		}
+		call.Participants = append([]wa.ParsedCallParticipant(nil), call.Participants...)
+		for i := range call.Participants {
+			call.Participants[i].JID = a.canonicalWebhookJIDString(ctx, call.Participants[i].JID)
+		}
+		pm.Call = &call
+	}
+	return pm
+}
+
+func (a *App) canonicalWebhookJID(ctx context.Context, jid types.JID) types.JID {
+	if a.wa == nil {
+		return canonicalJID(jid)
+	}
+	return a.canonicalStoreJID(ctx, jid)
+}
+
+func (a *App) canonicalWebhookJIDString(ctx context.Context, raw string) string {
+	jid, err := types.ParseJID(raw)
+	if err != nil {
+		return raw
+	}
+	return a.canonicalWebhookJID(ctx, jid).String()
 }
 
 func newSyncWebhookRequest(ctx context.Context, webhookURL, secret, version string, payload []byte) (*http.Request, error) {

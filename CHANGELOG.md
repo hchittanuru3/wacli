@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Sync: normalize resolvable LIDs in message, receipt, and chat-presence webhook payloads to match stored identities. (#352 - thanks @hchittanuru3)
+
 ## v0.17.0 - 2026-08-13
 
 **Highlight:** group identities are finally stable — resolvable LIDs are
