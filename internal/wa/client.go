@@ -247,13 +247,17 @@ func qrChannelEventError(evt whatsmeow.QRChannelItem) error {
 		return fmt.Errorf("QR scanned, but multi-device is not enabled on the phone")
 	case evt == whatsmeow.QRChannelErrUnexpectedEvent:
 		return fmt.Errorf("unexpected QR pairing state; run `wacli auth` again")
+	case evt.Event == whatsmeow.QRChannelEventPasskeyRequest:
+		return fmt.Errorf("WhatsApp requires passkey verification, which wacli cannot safely complete yet; preserve any existing authenticated store and check for an updated wacli release")
+	case evt.Event == whatsmeow.QRChannelEventPasskeyResponse:
+		return fmt.Errorf("WhatsApp requires passkey confirmation, which wacli cannot safely complete yet; preserve any existing authenticated store and check for an updated wacli release")
 	case evt.Event == whatsmeow.QRChannelEventError:
 		if evt.Error != nil {
 			return fmt.Errorf("QR pairing failed: %w", evt.Error)
 		}
 		return fmt.Errorf("QR pairing failed")
 	default:
-		return nil
+		return fmt.Errorf("unsupported QR pairing state %q; update wacli and try again", evt.Event)
 	}
 }
 

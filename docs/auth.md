@@ -19,6 +19,7 @@ wacli --account work auth status
 - `--qr-format text` prints the raw QR payload for external renderers.
 - `--phone PHONE` uses WhatsApp phone-number pairing instead of QR pairing.
 - Transient websocket drops before pairing completes are retried with a fresh QR/code.
+- Passkey-gated pairing is not yet supported. If WhatsApp requests passkey verification or confirmation, auth stops with an actionable error instead of continuing to rotate unusable QR codes.
 - After pairing, auth runs bootstrap sync until idle unless `--follow` is set.
 - Bootstrap sync honors `WACLI_SYNC_MAX_MESSAGES` and `WACLI_SYNC_MAX_DB_SIZE` to cap local history growth.
 - `--events` emits NDJSON lifecycle events on stderr, including raw QR and phone-pairing codes for external renderers.

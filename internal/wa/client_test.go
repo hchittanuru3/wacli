@@ -286,6 +286,9 @@ func TestQRChannelEventError(t *testing.T) {
 		{name: "multidevice disabled", evt: whatsmeow.QRChannelScannedWithoutMultidevice, want: "multi-device is not enabled"},
 		{name: "unexpected state", evt: whatsmeow.QRChannelErrUnexpectedEvent, want: "unexpected QR pairing state"},
 		{name: "pair error", evt: whatsmeow.QRChannelItem{Event: whatsmeow.QRChannelEventError, Error: errors.New("bad code")}, want: "bad code"},
+		{name: "passkey request", evt: whatsmeow.QRChannelItem{Event: whatsmeow.QRChannelEventPasskeyRequest}, want: "requires passkey verification"},
+		{name: "passkey confirmation", evt: whatsmeow.QRChannelItem{Event: whatsmeow.QRChannelEventPasskeyResponse}, want: "requires passkey confirmation"},
+		{name: "unknown event", evt: whatsmeow.QRChannelItem{Event: "future-pairing-step"}, want: "unsupported QR pairing state"},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
