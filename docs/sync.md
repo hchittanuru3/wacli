@@ -55,9 +55,10 @@ known LIDs are resolved to phone JIDs, while unknown LIDs remain unchanged.
 
 Messages replayed from the offline queue after a reconnect carry `"Offline": true`.
 The field is omitted for live messages, so a consumer written before it sees the
-established shape unchanged. The window opens on `offline_preview` and is bounded by
-the message count the server announces there, closing early on `offline_completed`;
-an interrupted replay therefore cannot mark live traffic indefinitely. It is a
+established shape unchanged. The window opens with the
+`offline_sync_preview` event and is bounded by the message count announced there,
+closing early on `offline_sync_completed`; an interrupted replay therefore cannot
+mark live traffic indefinitely. It is a
 best-effort marker, not a guarantee: a genuinely live message that arrives in the
 middle of a replay is inside the window and is marked with it. Receipts are not
 marked.

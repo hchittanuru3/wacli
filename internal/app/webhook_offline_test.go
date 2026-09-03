@@ -106,7 +106,7 @@ func TestOfflineBacklogMarksReplayedMessages(t *testing.T) {
 }
 
 // The window closes on the announced count alone, so a replay cut short by a
-// dropped connection (no offline_completed) cannot mark live traffic forever.
+// dropped connection (no OfflineSyncCompleted) cannot mark live traffic forever.
 func TestOfflineBacklogWindowIsBoundedByTheAnnouncedCount(t *testing.T) {
 	rec := &webhookEventRecorder{}
 	_, f := offlineTestApp(t, rec)
@@ -128,7 +128,7 @@ func TestOfflineBacklogWindowIsBoundedByTheAnnouncedCount(t *testing.T) {
 	}
 }
 
-// offline_completed closes a window the server over-counted, so the very next
+// OfflineSyncCompleted closes a window the server over-counted, so the very next
 // live message is not mislabelled.
 func TestOfflineSyncCompletedClosesTheWindowEarly(t *testing.T) {
 	rec := &webhookEventRecorder{}

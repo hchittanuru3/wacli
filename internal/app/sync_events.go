@@ -60,8 +60,8 @@ func (a *App) addSyncEventHandler(ctx context.Context, opts SyncOptions, message
 	}
 	// Messages the server replays from the offline queue after a reconnect
 	// arrive as ordinary live events. The server announces how many are coming
-	// in offline_preview, so the window is bounded by that count rather than
-	// left open until offline_completed: an interrupted replay then cannot mark
+	// in OfflineSyncPreview, so the window is bounded by that count rather than
+	// left open until OfflineSyncCompleted: an interrupted replay then cannot mark
 	// live traffic as backlog indefinitely.
 	var offlineBacklog atomic.Int64
 	takeOfflineBacklog := func() bool {
