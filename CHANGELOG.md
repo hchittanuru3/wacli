@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- Sync: report the offline backlog a reconnect replays — `offline_sync_preview` and `offline_sync_completed` lifecycle events, and an `Offline` marker on webhook message payloads delivered inside that window, so consumers can tell a replayed backlog from live traffic.
+
 ### Fixed
 
 - CLI: keep successful JSON commands successful when a pipe reader closes early, including Unix stdout SIGPIPE and Windows closed-pipe errors. (#366 - thanks @SebTardif)

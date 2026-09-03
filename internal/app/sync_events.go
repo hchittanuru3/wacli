@@ -58,7 +58,24 @@ func (a *App) addSyncEventHandler(ctx context.Context, opts SyncOptions, message
 	if enqueueWebhook == nil {
 		enqueueWebhook = func(syncWebhookEvent) {}
 	}
-	enqueueWebhookMessage := newSyncWebhookMessageEnqueuer(enqueueWebhook)
+	// Messages the server replays from the offline queue after a reconnect
+	// arrive as ordinary live events. The server announces how many are coming
+	// in offline_preview, so the window is bounded by that count rather than
+	// left open until offline_completed: an interrupted replay then cannot mark
+	// live traffic as backlog indefinitely.
+	var offlineBacklog atomic.Int64
+	takeOfflineBacklog := func() bool {
+		for {
+			remaining := offlineBacklog.Load()
+			if remaining <= 0 {
+				return false
+			}
+			if offlineBacklog.CompareAndSwap(remaining, remaining-1) {
+				return true
+			}
+		}
+	}
+	enqueueWebhookMessage := newSyncWebhookMessageEnqueuer(enqueueWebhook, takeOfflineBacklog)
 	if !opts.WebhookEvents.Enabled(SyncWebhookEventMessage) {
 		enqueueWebhookMessage = func(wa.ParsedMessage) {}
 	}
@@ -129,6 +146,22 @@ func (a *App) addSyncEventHandler(ctx context.Context, opts SyncOptions, message
 					enqueueWebhook(job)
 				}
 			}
+		case *events.OfflineSyncPreview:
+			// Emitted right after connecting when the server is about to send
+			// what this device missed while it was down.
+			offlineBacklog.Store(int64(v.Messages))
+			a.emitOrPrint("offline_sync_preview", map[string]any{
+				"total":            v.Total,
+				"messages":         v.Messages,
+				"receipts":         v.Receipts,
+				"notifications":    v.Notifications,
+				"app_data_changes": v.AppDataChanges,
+			}, "\nReplaying offline backlog: %d message(s), %d event(s) total.\n", v.Messages, v.Total)
+		case *events.OfflineSyncCompleted:
+			offlineBacklog.Store(0)
+			a.emitOrPrint("offline_sync_completed", map[string]any{
+				"count": v.Count,
+			}, "\nOffline backlog replayed (%d event(s)).\n", v.Count)
 		case *events.Connected:
 			a.emitOrPrint("connected", nil, "\nConnected.\n")
 			ps.mu.Lock()
