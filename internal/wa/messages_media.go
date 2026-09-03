@@ -47,9 +47,13 @@ func extractMedia(m *waProto.Message, pm *ParsedMessage) {
 		if pm.Text == "" {
 			pm.Text = "[Audio]"
 		}
+		// Caption stays empty: AudioMessage carries no caption field, so the only
+		// value available here is the synthetic "[Audio]" placeholder set above.
+		// Storing it would report fabricated user content on the one media type
+		// that can never have any, and make every voice note match a search for
+		// its own placeholder.
 		pm.Media = &Media{
 			Type:          "audio",
-			Caption:       pm.Text,
 			MimeType:      aud.GetMimetype(),
 			DirectPath:    aud.GetDirectPath(),
 			MediaKey:      clone(aud.GetMediaKey()),

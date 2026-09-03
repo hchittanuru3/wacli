@@ -1,0 +1,52 @@
+package wa
+
+import (
+	"testing"
+
+	waProto "go.mau.fi/whatsmeow/binary/proto"
+	"google.golang.org/protobuf/proto"
+)
+
+// AudioMessage has no caption field in the protocol, so the only value the audio
+// branch could put in Media.Caption is the "[Audio]" placeholder it just wrote to
+// Text. Storing it reports fabricated user content on the one media type that can
+// never carry any, and makes every voice note match a search for its own
+// placeholder.
+func TestParseLiveMessageLeavesAudioCaptionEmpty(t *testing.T) {
+	pm := ParseLiveMessage(liveEvent(&waProto.Message{
+		AudioMessage: &waProto.AudioMessage{
+			Mimetype: proto.String("audio/ogg; codecs=opus"),
+			PTT:      proto.Bool(true),
+		},
+	}))
+	if pm.Media == nil {
+		t.Fatal("expected audio media to be extracted")
+	}
+	if pm.Media.Type != "audio" {
+		t.Fatalf("expected media type audio, got %q", pm.Media.Type)
+	}
+	if pm.Media.Caption != "" {
+		t.Fatalf("expected an empty caption, got %q", pm.Media.Caption)
+	}
+	// The Text placeholder is the long-standing display behaviour and stays.
+	if pm.Text != "[Audio]" {
+		t.Fatalf("expected the [Audio] text placeholder, got %q", pm.Text)
+	}
+}
+
+// A captioned image is the contrast case: there Caption is real user content and
+// must survive, so the fix above must not be read as "captions are noise".
+func TestParseLiveMessageKeepsImageCaption(t *testing.T) {
+	pm := ParseLiveMessage(liveEvent(&waProto.Message{
+		ImageMessage: &waProto.ImageMessage{
+			Mimetype: proto.String("image/jpeg"),
+			Caption:  proto.String("leak under the sink"),
+		},
+	}))
+	if pm.Media == nil {
+		t.Fatal("expected image media to be extracted")
+	}
+	if pm.Media.Caption != "leak under the sink" {
+		t.Fatalf("expected the image caption to survive, got %q", pm.Media.Caption)
+	}
+}
