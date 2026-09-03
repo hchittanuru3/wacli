@@ -9,9 +9,8 @@ import (
 
 // AudioMessage has no caption field in the protocol, so the only value the audio
 // branch could put in Media.Caption is the "[Audio]" placeholder it just wrote to
-// Text. Storing it reports fabricated user content on the one media type that can
-// never carry any, and makes every voice note match a search for its own
-// placeholder.
+// Text. Storing it reports content the sender never wrote on the one media type
+// that can never carry a caption.
 func TestParseLiveMessageLeavesAudioCaptionEmpty(t *testing.T) {
 	pm := ParseLiveMessage(liveEvent(&waProto.Message{
 		AudioMessage: &waProto.AudioMessage{
