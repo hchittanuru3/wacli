@@ -44,6 +44,11 @@ func (r *webhookEventRecorder) offlineFlags() []bool {
 
 func offlineTestApp(t *testing.T, rec *webhookEventRecorder) (*App, *fakeWA) {
 	t.Helper()
+	return offlineTestAppWithLimits(t, rec, nil)
+}
+
+func offlineTestAppWithLimits(t *testing.T, rec *webhookEventRecorder, limits *syncStorageLimits) (*App, *fakeWA) {
+	t.Helper()
 	a := newTestApp(t)
 	f := newFakeWA()
 	a.wa = f
@@ -61,7 +66,7 @@ func offlineTestApp(t *testing.T, rec *webhookEventRecorder) (*App, *fakeWA) {
 		make(chan staleReconnectRequest, 1),
 		func(string, string) {},
 		rec.enqueue,
-		nil,
+		limits,
 		&syncPresence{},
 		nil,
 	)
@@ -198,5 +203,50 @@ func TestOfflineSyncEmitsLifecycleEvents(t *testing.T) {
 		if !strings.Contains(log, want) {
 			t.Fatalf("event log missing %s: %s", want, log)
 		}
+	}
+}
+
+// The replay budget is consumed when a message ARRIVES, not when it is queued
+// for delivery: the live path enqueues only after storage succeeds, so counting
+// at the enqueuer would leave a failed message's slot open, and the next live
+// message would be published as backlog.
+func TestOfflineBacklogCountsAMessageThatFailsToStore(t *testing.T) {
+	rec := &webhookEventRecorder{}
+	a := newTestApp(t)
+	f := newFakeWA()
+	a.wa = f
+	a.opts.Events = out.NewEventWriter(io.Discard, true)
+
+	// One message already stored against a cap of one, so the next store is
+	// refused before it is attempted.
+	if err := a.storeParsedMessageForSync(context.Background(), wa.ParseLiveMessage(offlineTestMessage("seed"))); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	limits := &syncStorageLimits{app: a, opts: SyncOptions{MaxMessages: 1}}
+
+	var messagesStored, lastEvent atomic.Int64
+	a.addSyncEventHandler(
+		context.Background(), SyncOptions{}, &messagesStored, &lastEvent,
+		make(chan struct{}, 1), make(chan struct{}, 1), make(chan staleReconnectRequest, 1),
+		func(string, string) {}, rec.enqueue, limits, &syncPresence{}, nil,
+	)
+
+	f.emit(&events.OfflineSyncPreview{Total: 1, Messages: 1})
+	f.emit(offlineTestMessage("replayed-unstorable"))
+	if got := rec.offlineFlags(); len(got) != 0 {
+		t.Fatalf("a message that failed to store was still delivered: %v", got)
+	}
+
+	// Lift the cap so the next message stores, and check it is not wearing the
+	// slot the refused one should have spent.
+	limits.opts.MaxMessages = 100
+	f.emit(offlineTestMessage("live-1"))
+
+	got := rec.offlineFlags()
+	if len(got) != 1 {
+		t.Fatalf("expected the live message to be delivered, got %v", got)
+	}
+	if got[0] {
+		t.Fatal("live message was published as offline backlog: the refused message's slot leaked")
 	}
 }

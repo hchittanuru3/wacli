@@ -75,9 +75,9 @@ func (a *App) addSyncEventHandler(ctx context.Context, opts SyncOptions, message
 			}
 		}
 	}
-	enqueueWebhookMessage := newSyncWebhookMessageEnqueuer(enqueueWebhook, takeOfflineBacklog)
+	enqueueWebhookMessage := newSyncWebhookMessageEnqueuer(enqueueWebhook)
 	if !opts.WebhookEvents.Enabled(SyncWebhookEventMessage) {
-		enqueueWebhookMessage = func(wa.ParsedMessage) {}
+		enqueueWebhookMessage = func(wa.ParsedMessage, bool) {}
 	}
 	return a.wa.AddEventHandler(func(evt interface{}) {
 		if mediaQ != nil {
@@ -118,7 +118,13 @@ func (a *App) addSyncEventHandler(ctx context.Context, opts SyncOptions, message
 				a.downloadAndHandleHistorySync(ctx, opts, notif, messagesStored, lastEvent, enqueueMedia, limits)
 				return
 			}
-			a.handleLiveSyncMessage(ctx, opts, v, messagesStored, enqueueMedia, enqueueWebhookMessage, limits)
+			// Classified on ARRIVAL, before the storage gate below: a message
+			// that fails to store never reaches the enqueuer, and its slot
+			// would otherwise stay open for a live message to consume.
+			offline := takeOfflineBacklog()
+			a.handleLiveSyncMessage(ctx, opts, v, messagesStored, enqueueMedia, func(pm wa.ParsedMessage) {
+				enqueueWebhookMessage(pm, offline)
+			}, limits)
 		case *events.CallOffer, *events.CallAccept, *events.CallPreAccept, *events.CallTransport,
 			*events.CallOfferNotice, *events.CallRelayLatency, *events.CallTerminate, *events.CallReject:
 			lastEvent.Store(nowUTC().UnixNano())

@@ -94,15 +94,14 @@ func (a *App) newSyncWebhookEnqueuer(ctx context.Context, jobs chan<- syncWebhoo
 
 // newSyncWebhookMessageEnqueuer adapts the event enqueuer to the message-only
 // signature used by the live message path.
-// offline reports whether the message being enqueued is part of an offline
-// backlog replay; a nil func means "not tracked", never "live".
-func newSyncWebhookMessageEnqueuer(enqueue func(syncWebhookEvent), offline func() bool) func(wa.ParsedMessage) {
-	return func(pm wa.ParsedMessage) {
-		evt := syncWebhookEvent{Kind: SyncWebhookEventMessage, Message: pm}
-		if offline != nil {
-			evt.Offline = offline()
-		}
-		enqueue(evt)
+// offline says whether this message arrived inside an offline backlog replay.
+// The caller decides that when the event ARRIVES, not here: enqueueing happens
+// only after storage succeeds, so consuming the replay budget at this point
+// would leave a stored-failed message's slot behind for a later live message
+// to take.
+func newSyncWebhookMessageEnqueuer(enqueue func(syncWebhookEvent)) func(pm wa.ParsedMessage, offline bool) {
+	return func(pm wa.ParsedMessage, offline bool) {
+		enqueue(syncWebhookEvent{Kind: SyncWebhookEventMessage, Message: pm, Offline: offline})
 	}
 }
 

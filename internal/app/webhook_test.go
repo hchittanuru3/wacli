@@ -84,7 +84,9 @@ func TestHandleLiveSyncMessagePostsSignedWebhookWithGroupName(t *testing.T) {
 		WebhookURL:          srv.URL,
 		WebhookSecret:       "supersecret",
 		WebhookAllowPrivate: true,
-	}, evt, &messagesStored, func(string, string) {}, newSyncWebhookMessageEnqueuer(a.newSyncWebhookEnqueuer(ctx, jobs), nil))
+	}, evt, &messagesStored, func(string, string) {}, func(pm wa.ParsedMessage) {
+		newSyncWebhookMessageEnqueuer(a.newSyncWebhookEnqueuer(ctx, jobs))(pm, false)
+	})
 
 	if messagesStored.Load() != 1 {
 		t.Fatalf("messages stored = %d, want 1", messagesStored.Load())
@@ -149,7 +151,9 @@ func TestHandleLiveSyncMessageDoesNotBlockOnWebhookDelivery(t *testing.T) {
 	var messagesStored atomic.Int64
 	returned := make(chan struct{})
 	go func() {
-		a.handleLiveSyncMessage(context.Background(), SyncOptions{WebhookURL: srv.URL, WebhookAllowPrivate: true}, evt, &messagesStored, func(string, string) {}, newSyncWebhookMessageEnqueuer(a.newSyncWebhookEnqueuer(ctx, jobs), nil))
+		a.handleLiveSyncMessage(context.Background(), SyncOptions{WebhookURL: srv.URL, WebhookAllowPrivate: true}, evt, &messagesStored, func(string, string) {}, func(pm wa.ParsedMessage) {
+			newSyncWebhookMessageEnqueuer(a.newSyncWebhookEnqueuer(ctx, jobs))(pm, false)
+		})
 		close(returned)
 	}()
 
