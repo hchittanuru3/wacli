@@ -44,17 +44,19 @@ func extractMedia(m *waProto.Message, pm *ParsedMessage) {
 	}
 
 	if aud := m.GetAudioMessage(); aud != nil {
+		// Only the SYNTHESIZED placeholder is dropped. AudioMessage carries no
+		// caption field, so "[Audio]" is a display string rather than content
+		// and must not be stored as one; text extracted from the same message
+		// is real and stays, exactly as before. Text keeps the placeholder --
+		// display_text already renders "Sent audio" alongside it.
+		caption := pm.Text
 		if pm.Text == "" {
 			pm.Text = "[Audio]"
+			caption = ""
 		}
-		// Caption stays empty: AudioMessage carries no caption field, so the only
-		// value available here is the synthetic "[Audio]" placeholder set above.
-		// Storing it reports content the sender never wrote on the one media
-		// type that can never carry a caption. Text keeps the placeholder --
-		// that is the display string, and display_text already renders
-		// "Sent audio" alongside it.
 		pm.Media = &Media{
 			Type:          "audio",
+			Caption:       caption,
 			MimeType:      aud.GetMimetype(),
 			DirectPath:    aud.GetDirectPath(),
 			MediaKey:      clone(aud.GetMediaKey()),

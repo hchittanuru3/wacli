@@ -49,3 +49,24 @@ func TestParseLiveMessageKeepsImageCaption(t *testing.T) {
 		t.Fatalf("expected the image caption to survive, got %q", pm.Media.Caption)
 	}
 }
+
+// A message carrying real text alongside the audio payload keeps that text as
+// the caption, exactly as before this change: only the synthesized placeholder
+// is dropped, never a value the sender actually supplied.
+func TestParseLiveMessageKeepsTextAccompanyingAudio(t *testing.T) {
+	pm := ParseLiveMessage(liveEvent(&waProto.Message{
+		Conversation: proto.String("the recording from this morning"),
+		AudioMessage: &waProto.AudioMessage{
+			Mimetype: proto.String("audio/ogg; codecs=opus"),
+		},
+	}))
+	if pm.Media == nil {
+		t.Fatal("expected audio media to be extracted")
+	}
+	if pm.Media.Caption != "the recording from this morning" {
+		t.Fatalf("expected the accompanying text to survive as the caption, got %q", pm.Media.Caption)
+	}
+	if pm.Text != "the recording from this morning" {
+		t.Fatalf("expected the text to be unchanged, got %q", pm.Text)
+	}
+}

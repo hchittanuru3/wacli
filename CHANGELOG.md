@@ -8,7 +8,7 @@
 - Groups: warn on stderr when `groups list` truncates matching results, including JSON output, and keep `--events` warnings machine-readable. (#360 - thanks @hchittanuru3)
 - Sync: update whatsmeow so incoming socket frames use the active connection context.
 - History: retry an unanswered backfill anchor once with the next local message, report both anchors, and keep retries bounded without deleting history or filtering message IDs. (#371 - thanks @Entretoize)
-- Messages: stop storing the synthetic `[Audio]` placeholder as an audio message's media caption, so a voice note no longer reports a caption its sender never wrote. Applies as messages are parsed: a row already in the store keeps `[Audio]` until that message is ingested again, and a re-ingest can rewrite it to empty.
+- Messages: stop storing the synthetic `[Audio]` placeholder as an audio message's media caption, so a voice note no longer reports a caption its sender never wrote. Text extracted from the same message is unaffected and still stored as the caption. Applies as messages are parsed: a row already in the store keeps `[Audio]` until that message is ingested again, and a re-ingest can rewrite it to empty.
 
 ### Chore
 
