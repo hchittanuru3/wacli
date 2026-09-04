@@ -250,3 +250,48 @@ func TestOfflineBacklogCountsAMessageThatFailsToStore(t *testing.T) {
 		t.Fatal("live message was published as offline backlog: the refused message's slot leaked")
 	}
 }
+
+// The handler is registered once for the whole sync run, so a replay cut short
+// by a dropped socket would otherwise leave slots behind for the reconnect's
+// live traffic to spend.
+func TestOfflineBacklogClearsOnDisconnect(t *testing.T) {
+	rec := &webhookEventRecorder{}
+	_, f := offlineTestApp(t, rec)
+
+	f.emit(&events.OfflineSyncPreview{Total: 5, Messages: 5})
+	f.emit(offlineTestMessage("replayed-1"))
+	f.emit(&events.Disconnected{})
+	// Reconnected, no new preview: everything from here is live.
+	f.emit(offlineTestMessage("live-1"))
+	f.emit(offlineTestMessage("live-2"))
+
+	got := rec.offlineFlags()
+	want := []bool{true, false, false}
+	if len(got) != len(want) {
+		t.Fatalf("enqueued %d webhook events, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("offline flags = %v, want %v: the dropped replay's slots leaked past the reconnect", got, want)
+		}
+	}
+}
+
+// StreamReplaced is the other way a connection ends mid-replay.
+func TestOfflineBacklogClearsOnStreamReplaced(t *testing.T) {
+	rec := &webhookEventRecorder{}
+	a, f := offlineTestApp(t, rec)
+	a.wa = f
+
+	f.emit(&events.OfflineSyncPreview{Total: 3, Messages: 3})
+	f.emit(&events.StreamReplaced{})
+	f.emit(offlineTestMessage("live-1"))
+
+	got := rec.offlineFlags()
+	if len(got) != 1 {
+		t.Fatalf("enqueued %d webhook events, want 1", len(got))
+	}
+	if got[0] {
+		t.Fatal("a message after StreamReplaced was published as offline backlog")
+	}
+}

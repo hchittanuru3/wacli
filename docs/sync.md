@@ -57,8 +57,8 @@ Messages replayed from the offline queue after a reconnect carry `"Offline": tru
 The field is omitted for live messages, so a consumer written before it sees the
 established shape unchanged. The window opens with the
 `offline_sync_preview` event and is bounded by the message count announced there,
-counted as each message arrives rather than as it is delivered, and closing early
-on `offline_sync_completed`; an interrupted replay therefore cannot
+counted as each message arrives rather than as it is delivered, closing early on
+`offline_sync_completed`, and cleared whenever the connection drops; an interrupted replay therefore cannot
 mark live traffic indefinitely. It is a
 best-effort marker, not a guarantee: a genuinely live message that arrives in the
 middle of a replay is inside the window and is marked with it. Receipts are not
