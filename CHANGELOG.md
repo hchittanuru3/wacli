@@ -8,10 +8,13 @@
 - Groups: warn on stderr when `groups list` truncates matching results, including JSON output, and keep `--events` warnings machine-readable. (#360 - thanks @hchittanuru3)
 - Sync: update whatsmeow so incoming socket frames use the active connection context.
 - History: retry an unanswered backfill anchor once with the next local message, report both anchors, and keep retries bounded without deleting history or filtering message IDs. (#371 - thanks @Entretoize)
-- Messages: stop storing the synthetic `[Audio]` placeholder as an audio message's media caption, so a voice note no longer reports a caption its sender never wrote. Text extracted from the same message is unaffected and still stored as the caption. Applies as messages are parsed: a row already in the store keeps `[Audio]` until that message is ingested again, and a re-ingest can rewrite it to empty.
+- Messages: omit synthetic audio captions while preserving supplied text and the `[Audio]` display fallback; ordinary re-ingestion can correct legacy captions without migrating untouched rows. (#378 - thanks @hchittanuru3)
 
 ### Chore
 
+- Builds: use Go 1.27.1 for development, CI, release verification, and Docker while retaining the Go 1.27.0 source minimum.
+
+- Dependencies: update whatsmeow, x/crypto, gqlparser, pnpm 11, and the Pages deployment action; keep Corepack bootstrap compatible with a verified integrity pin. (#384 - thanks @thedavidweng)
 - Dependencies: update Go modules, pnpm, CI actions, GoReleaser, and Docker images; require Go 1.27.0 and align local, CI, and release toolchain checks.
 
 ## v0.17.1 - 2026-08-14

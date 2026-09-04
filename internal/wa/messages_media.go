@@ -44,15 +44,10 @@ func extractMedia(m *waProto.Message, pm *ParsedMessage) {
 	}
 
 	if aud := m.GetAudioMessage(); aud != nil {
-		// Only the SYNTHESIZED placeholder is dropped. AudioMessage carries no
-		// caption field, so "[Audio]" is a display string rather than content
-		// and must not be stored as one; text extracted from the same message
-		// is real and stays, exactly as before. Text keeps the placeholder --
-		// display_text already renders "Sent audio" alongside it.
+		// Preserve supplied text before adding the display-only fallback.
 		caption := pm.Text
 		if pm.Text == "" {
 			pm.Text = "[Audio]"
-			caption = ""
 		}
 		pm.Media = &Media{
 			Type:          "audio",
