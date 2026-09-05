@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/openclaw/wacli/internal/out"
-	"github.com/openclaw/wacli/internal/wa"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -32,22 +31,13 @@ func (r *webhookEventRecorder) enqueue(evt syncWebhookEvent) {
 	r.events = append(r.events, evt)
 }
 
-func (r *webhookEventRecorder) offlineFlags() []bool {
+func (r *webhookEventRecorder) count() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	flags := make([]bool, 0, len(r.events))
-	for _, evt := range r.events {
-		flags = append(flags, evt.Offline)
-	}
-	return flags
+	return len(r.events)
 }
 
 func offlineTestApp(t *testing.T, rec *webhookEventRecorder) (*App, *fakeWA) {
-	t.Helper()
-	return offlineTestAppWithLimits(t, rec, nil)
-}
-
-func offlineTestAppWithLimits(t *testing.T, rec *webhookEventRecorder, limits *syncStorageLimits) (*App, *fakeWA) {
 	t.Helper()
 	a := newTestApp(t)
 	f := newFakeWA()
@@ -66,7 +56,7 @@ func offlineTestAppWithLimits(t *testing.T, rec *webhookEventRecorder, limits *s
 		make(chan staleReconnectRequest, 1),
 		func(string, string) {},
 		rec.enqueue,
-		limits,
+		nil,
 		&syncPresence{},
 		nil,
 	)
@@ -82,101 +72,6 @@ func offlineTestMessage(id string) *events.Message {
 			Timestamp:     time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
 		},
 		Message: &waProto.Message{Conversation: proto.String("hello")},
-	}
-}
-
-// A reconnect after downtime replays everything the device missed as ordinary
-// live message events. Without a marker a consumer answers a backlog as though
-// it were current traffic, so the count the server announces bounds the window.
-func TestOfflineBacklogMarksReplayedMessages(t *testing.T) {
-	rec := &webhookEventRecorder{}
-	_, f := offlineTestApp(t, rec)
-
-	f.emit(&events.OfflineSyncPreview{Total: 3, Messages: 2})
-	f.emit(offlineTestMessage("replayed-1"))
-	f.emit(offlineTestMessage("replayed-2"))
-	f.emit(&events.OfflineSyncCompleted{Count: 3})
-	f.emit(offlineTestMessage("live-1"))
-
-	got := rec.offlineFlags()
-	want := []bool{true, true, false}
-	if len(got) != len(want) {
-		t.Fatalf("enqueued %d webhook events, want %d", len(got), len(want))
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("offline flags = %v, want %v", got, want)
-		}
-	}
-}
-
-// The window closes on the announced count alone, so a replay cut short by a
-// dropped connection (no OfflineSyncCompleted) cannot mark live traffic forever.
-func TestOfflineBacklogWindowIsBoundedByTheAnnouncedCount(t *testing.T) {
-	rec := &webhookEventRecorder{}
-	_, f := offlineTestApp(t, rec)
-
-	f.emit(&events.OfflineSyncPreview{Total: 1, Messages: 1})
-	f.emit(offlineTestMessage("replayed-1"))
-	// No OfflineSyncCompleted: the socket dropped mid-replay.
-	f.emit(offlineTestMessage("live-1"))
-
-	got := rec.offlineFlags()
-	want := []bool{true, false}
-	if len(got) != len(want) {
-		t.Fatalf("enqueued %d webhook events, want %d", len(got), len(want))
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("offline flags = %v, want %v", got, want)
-		}
-	}
-}
-
-// OfflineSyncCompleted closes a window the server over-counted, so the very next
-// live message is not mislabelled.
-func TestOfflineSyncCompletedClosesTheWindowEarly(t *testing.T) {
-	rec := &webhookEventRecorder{}
-	_, f := offlineTestApp(t, rec)
-
-	f.emit(&events.OfflineSyncPreview{Total: 5, Messages: 5})
-	f.emit(offlineTestMessage("replayed-1"))
-	f.emit(&events.OfflineSyncCompleted{Count: 5})
-	f.emit(offlineTestMessage("live-1"))
-
-	got := rec.offlineFlags()
-	want := []bool{true, false}
-	if len(got) != len(want) {
-		t.Fatalf("enqueued %d webhook events, want %d", len(got), len(want))
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("offline flags = %v, want %v", got, want)
-		}
-	}
-}
-
-// Offline is omitempty: a live message keeps the exact payload shape consumers
-// written before this flag already parse.
-func TestOfflinePayloadFieldIsOmittedWhenLive(t *testing.T) {
-	a := newTestApp(t)
-	ctx := context.Background()
-	pm := offlineTestMessage("m-1")
-
-	live, err := json.Marshal(a.newSyncWebhookPayload(ctx, wa.ParseLiveMessage(pm), false))
-	if err != nil {
-		t.Fatalf("marshal live payload: %v", err)
-	}
-	if strings.Contains(string(live), "Offline") {
-		t.Fatalf("live payload gained an Offline key: %s", live)
-	}
-
-	replayed, err := json.Marshal(a.newSyncWebhookPayload(ctx, wa.ParseLiveMessage(pm), true))
-	if err != nil {
-		t.Fatalf("marshal replayed payload: %v", err)
-	}
-	if !strings.Contains(string(replayed), `"Offline":true`) {
-		t.Fatalf("replayed payload missing Offline: %s", replayed)
 	}
 }
 
@@ -210,88 +105,34 @@ func TestOfflineSyncEmitsLifecycleEvents(t *testing.T) {
 // for delivery: the live path enqueues only after storage succeeds, so counting
 // at the enqueuer would leave a failed message's slot open, and the next live
 // message would be published as backlog.
-func TestOfflineBacklogCountsAMessageThatFailsToStore(t *testing.T) {
-	rec := &webhookEventRecorder{}
-	a := newTestApp(t)
-	f := newFakeWA()
-	a.wa = f
-	a.opts.Events = out.NewEventWriter(io.Discard, true)
-
-	// One message already stored against a cap of one, so the next store is
-	// refused before it is attempted.
-	if err := a.storeParsedMessageForSync(context.Background(), wa.ParseLiveMessage(offlineTestMessage("seed"))); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-	limits := &syncStorageLimits{app: a, opts: SyncOptions{MaxMessages: 1}}
-
-	var messagesStored, lastEvent atomic.Int64
-	a.addSyncEventHandler(
-		context.Background(), SyncOptions{}, &messagesStored, &lastEvent,
-		make(chan struct{}, 1), make(chan struct{}, 1), make(chan staleReconnectRequest, 1),
-		func(string, string) {}, rec.enqueue, limits, &syncPresence{}, nil,
-	)
-
-	f.emit(&events.OfflineSyncPreview{Total: 1, Messages: 1})
-	f.emit(offlineTestMessage("replayed-unstorable"))
-	if got := rec.offlineFlags(); len(got) != 0 {
-		t.Fatalf("a message that failed to store was still delivered: %v", got)
-	}
-
-	// Lift the cap so the next message stores, and check it is not wearing the
-	// slot the refused one should have spent.
-	limits.opts.MaxMessages = 100
-	f.emit(offlineTestMessage("live-1"))
-
-	got := rec.offlineFlags()
-	if len(got) != 1 {
-		t.Fatalf("expected the live message to be delivered, got %v", got)
-	}
-	if got[0] {
-		t.Fatal("live message was published as offline backlog: the refused message's slot leaked")
-	}
-}
-
 // The handler is registered once for the whole sync run, so a replay cut short
 // by a dropped socket would otherwise leave slots behind for the reconnect's
 // live traffic to spend.
-func TestOfflineBacklogClearsOnDisconnect(t *testing.T) {
-	rec := &webhookEventRecorder{}
-	_, f := offlineTestApp(t, rec)
-
-	f.emit(&events.OfflineSyncPreview{Total: 5, Messages: 5})
-	f.emit(offlineTestMessage("replayed-1"))
-	f.emit(&events.Disconnected{})
-	// Reconnected, no new preview: everything from here is live.
-	f.emit(offlineTestMessage("live-1"))
-	f.emit(offlineTestMessage("live-2"))
-
-	got := rec.offlineFlags()
-	want := []bool{true, false, false}
-	if len(got) != len(want) {
-		t.Fatalf("enqueued %d webhook events, want %d", len(got), len(want))
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("offline flags = %v, want %v: the dropped replay's slots leaked past the reconnect", got, want)
-		}
-	}
-}
-
 // StreamReplaced is the other way a connection ends mid-replay.
-func TestOfflineBacklogClearsOnStreamReplaced(t *testing.T) {
+// Removing the payload marker means a replayed message must be delivered in
+// exactly the shape a live one has: the lifecycle events are the only new
+// surface, and strict decoders see no change at all.
+func TestReplayedMessagePayloadIsUnchanged(t *testing.T) {
 	rec := &webhookEventRecorder{}
 	a, f := offlineTestApp(t, rec)
-	a.wa = f
 
-	f.emit(&events.OfflineSyncPreview{Total: 3, Messages: 3})
-	f.emit(&events.StreamReplaced{})
+	f.emit(&events.OfflineSyncPreview{Total: 1, Messages: 1})
+	f.emit(offlineTestMessage("replayed-1"))
+	f.emit(&events.OfflineSyncCompleted{Count: 1})
 	f.emit(offlineTestMessage("live-1"))
 
-	got := rec.offlineFlags()
-	if len(got) != 1 {
-		t.Fatalf("enqueued %d webhook events, want 1", len(got))
+	if rec.count() != 2 {
+		t.Fatalf("enqueued %d webhook events, want 2", rec.count())
 	}
-	if got[0] {
-		t.Fatal("a message after StreamReplaced was published as offline backlog")
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	for i, evt := range rec.events {
+		body, err := json.Marshal(a.newSyncWebhookPayload(context.Background(), evt.Message))
+		if err != nil {
+			t.Fatalf("marshal %d: %v", i, err)
+		}
+		if strings.Contains(string(body), "Offline") {
+			t.Fatalf("payload %d carries an Offline key: %s", i, body)
+		}
 	}
 }

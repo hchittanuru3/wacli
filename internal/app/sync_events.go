@@ -58,32 +58,9 @@ func (a *App) addSyncEventHandler(ctx context.Context, opts SyncOptions, message
 	if enqueueWebhook == nil {
 		enqueueWebhook = func(syncWebhookEvent) {}
 	}
-	// Messages the server replays from the offline queue after a reconnect
-	// arrive as ordinary live events. The server announces how many are coming
-	// in OfflineSyncPreview, so the window is bounded by that count rather than
-	// left open until OfflineSyncCompleted: an interrupted replay then cannot mark
-	// live traffic as backlog indefinitely.
-	// Reset on OfflineSyncPreview (Store, never Add) and on any disconnect, so a
-	// window can only ever be re-armed by the server announcing a new one. The
-	// residual race is whatsmeow dispatching Disconnected from a goroutine: if it
-	// lands after the next preview it clears a live window, and the replay goes
-	// out unmarked. That is the safe direction -- a missing marker degrades to
-	// today's behaviour, while a stale one publishes live traffic as backlog.
-	var offlineBacklog atomic.Int64
-	takeOfflineBacklog := func() bool {
-		for {
-			remaining := offlineBacklog.Load()
-			if remaining <= 0 {
-				return false
-			}
-			if offlineBacklog.CompareAndSwap(remaining, remaining-1) {
-				return true
-			}
-		}
-	}
 	enqueueWebhookMessage := newSyncWebhookMessageEnqueuer(enqueueWebhook)
 	if !opts.WebhookEvents.Enabled(SyncWebhookEventMessage) {
-		enqueueWebhookMessage = func(wa.ParsedMessage, bool) {}
+		enqueueWebhookMessage = func(wa.ParsedMessage) {}
 	}
 	return a.wa.AddEventHandler(func(evt interface{}) {
 		if mediaQ != nil {
@@ -124,13 +101,7 @@ func (a *App) addSyncEventHandler(ctx context.Context, opts SyncOptions, message
 				a.downloadAndHandleHistorySync(ctx, opts, notif, messagesStored, lastEvent, enqueueMedia, limits)
 				return
 			}
-			// Classified on ARRIVAL, before the storage gate below: a message
-			// that fails to store never reaches the enqueuer, and its slot
-			// would otherwise stay open for a live message to consume.
-			offline := takeOfflineBacklog()
-			a.handleLiveSyncMessage(ctx, opts, v, messagesStored, enqueueMedia, func(pm wa.ParsedMessage) {
-				enqueueWebhookMessage(pm, offline)
-			}, limits)
+			a.handleLiveSyncMessage(ctx, opts, v, messagesStored, enqueueMedia, enqueueWebhookMessage, limits)
 		case *events.CallOffer, *events.CallAccept, *events.CallPreAccept, *events.CallTransport,
 			*events.CallOfferNotice, *events.CallRelayLatency, *events.CallTerminate, *events.CallReject:
 			lastEvent.Store(nowUTC().UnixNano())
@@ -161,7 +132,6 @@ func (a *App) addSyncEventHandler(ctx context.Context, opts SyncOptions, message
 		case *events.OfflineSyncPreview:
 			// Emitted right after connecting when the server is about to send
 			// what this device missed while it was down.
-			offlineBacklog.Store(int64(v.Messages))
 			a.emitOrPrint("offline_sync_preview", map[string]any{
 				"total":            v.Total,
 				"messages":         v.Messages,
@@ -170,7 +140,6 @@ func (a *App) addSyncEventHandler(ctx context.Context, opts SyncOptions, message
 				"app_data_changes": v.AppDataChanges,
 			}, "\nReplaying offline backlog: %d message(s), %d event(s) total.\n", v.Messages, v.Total)
 		case *events.OfflineSyncCompleted:
-			offlineBacklog.Store(0)
 			a.emitOrPrint("offline_sync_completed", map[string]any{
 				"count": v.Count,
 			}, "\nOffline backlog replayed (%d event(s)).\n", v.Count)
@@ -190,17 +159,12 @@ func (a *App) addSyncEventHandler(ctx context.Context, opts SyncOptions, message
 			}
 			ps.mu.Unlock()
 		case *events.Disconnected:
-			// A replay cut short by the socket dropping leaves slots the server
-			// will never fill. This handler outlives the connection, so without
-			// this they would be spent by live messages after the reconnect.
-			offlineBacklog.Store(0)
 			a.emitOrPrint("disconnected", nil, "\nDisconnected.\n")
 			select {
 			case disconnected <- struct{}{}:
 			default:
 			}
 		case *events.StreamReplaced:
-			offlineBacklog.Store(0)
 			a.emitOrPrint("stream_replaced", nil, "\nStream replaced.\n")
 			// whatsmeow emits StreamReplaced before onDisconnect necessarily
 			// clears the socket, so force-close before reconnecting.

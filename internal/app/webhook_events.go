@@ -84,10 +84,6 @@ type syncWebhookEvent struct {
 	Message  wa.ParsedMessage
 	Receipt  syncWebhookReceipt
 	Presence syncWebhookChatPresence
-	// Offline marks a message the server replayed from the offline queue after
-	// a reconnect. Captured at enqueue time: the worker builds payloads later,
-	// by which point the replay window may already have closed.
-	Offline bool
 }
 
 // id is only used for log lines; receipts carry a batch of message IDs and

@@ -37,9 +37,6 @@ var syncWebhookRequestTimeout = 5 * time.Second
 type syncWebhookPayload struct {
 	wa.ParsedMessage
 	ChatName string `json:"ChatName,omitempty"`
-	// Offline is present only on messages replayed from the offline queue, so
-	// consumers that predate it see the established object shape unchanged.
-	Offline bool `json:"Offline,omitempty"`
 }
 
 type syncWebhookReceiptPayload struct {
@@ -94,14 +91,9 @@ func (a *App) newSyncWebhookEnqueuer(ctx context.Context, jobs chan<- syncWebhoo
 
 // newSyncWebhookMessageEnqueuer adapts the event enqueuer to the message-only
 // signature used by the live message path.
-// offline says whether this message arrived inside an offline backlog replay.
-// The caller decides that when the event ARRIVES, not here: enqueueing happens
-// only after storage succeeds, so consuming the replay budget at this point
-// would leave a stored-failed message's slot behind for a later live message
-// to take.
-func newSyncWebhookMessageEnqueuer(enqueue func(syncWebhookEvent)) func(pm wa.ParsedMessage, offline bool) {
-	return func(pm wa.ParsedMessage, offline bool) {
-		enqueue(syncWebhookEvent{Kind: SyncWebhookEventMessage, Message: pm, Offline: offline})
+func newSyncWebhookMessageEnqueuer(enqueue func(syncWebhookEvent)) func(wa.ParsedMessage) {
+	return func(pm wa.ParsedMessage) {
+		enqueue(syncWebhookEvent{Kind: SyncWebhookEventMessage, Message: pm})
 	}
 }
 
@@ -199,13 +191,13 @@ func (a *App) newSyncWebhookEventPayload(ctx context.Context, evt syncWebhookEve
 		presence.Sender = a.canonicalWebhookJID(ctx, presence.Sender)
 		return syncWebhookChatPresencePayload{EventType: SyncWebhookEventChatPresence, syncWebhookChatPresence: presence}
 	default:
-		return a.newSyncWebhookPayload(ctx, evt.Message, evt.Offline)
+		return a.newSyncWebhookPayload(ctx, evt.Message)
 	}
 }
 
-func (a *App) newSyncWebhookPayload(ctx context.Context, pm wa.ParsedMessage, offline bool) syncWebhookPayload {
+func (a *App) newSyncWebhookPayload(ctx context.Context, pm wa.ParsedMessage) syncWebhookPayload {
 	pm = a.canonicalWebhookMessage(ctx, pm)
-	payload := syncWebhookPayload{ParsedMessage: pm, Offline: offline}
+	payload := syncWebhookPayload{ParsedMessage: pm}
 	chatJID := canonicalJIDString(pm.Chat)
 	if chatJID != "" && a.db != nil {
 		chat, err := a.db.GetChat(chatJID)

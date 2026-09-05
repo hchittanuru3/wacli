@@ -4,7 +4,7 @@
 
 ### Added
 
-- Sync: report the offline backlog a reconnect replays — `offline_sync_preview` and `offline_sync_completed` lifecycle events, and an `Offline` marker on webhook message payloads delivered inside that window, so consumers can tell a replayed backlog from live traffic.
+- Sync: report the offline backlog a reconnect replays with `offline_sync_preview` and `offline_sync_completed` lifecycle events, so a consumer can tell a replayed backlog from live traffic. Webhook payloads are unchanged.
 
 ### Fixed
 
