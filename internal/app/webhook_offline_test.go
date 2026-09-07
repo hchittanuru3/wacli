@@ -18,8 +18,6 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// collectWebhookEvents drives the real sync event handler and records every
-// event it enqueues for delivery.
 type webhookEventRecorder struct {
 	mu     sync.Mutex
 	events []syncWebhookEvent
@@ -75,8 +73,6 @@ func offlineTestMessage(id string) *events.Message {
 	}
 }
 
-// The lifecycle events are the half a consumer that does not use --webhook can
-// act on: they name the replay, and how much of it is still coming.
 func TestOfflineSyncEmitsLifecycleEvents(t *testing.T) {
 	var eventsOut bytes.Buffer
 	rec := &webhookEventRecorder{}
@@ -101,17 +97,7 @@ func TestOfflineSyncEmitsLifecycleEvents(t *testing.T) {
 	}
 }
 
-// The replay budget is consumed when a message ARRIVES, not when it is queued
-// for delivery: the live path enqueues only after storage succeeds, so counting
-// at the enqueuer would leave a failed message's slot open, and the next live
-// message would be published as backlog.
-// The handler is registered once for the whole sync run, so a replay cut short
-// by a dropped socket would otherwise leave slots behind for the reconnect's
-// live traffic to spend.
-// StreamReplaced is the other way a connection ends mid-replay.
-// Removing the payload marker means a replayed message must be delivered in
-// exactly the shape a live one has: the lifecycle events are the only new
-// surface, and strict decoders see no change at all.
+// Replay signals must not change the webhook schema for strict decoders.
 func TestReplayedMessagePayloadIsUnchanged(t *testing.T) {
 	rec := &webhookEventRecorder{}
 	a, f := offlineTestApp(t, rec)

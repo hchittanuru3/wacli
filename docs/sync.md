@@ -43,7 +43,8 @@ wacli sync [--once] [--follow] [--idle-exit 30s] [--max-reconnect 5m] [--stale-t
 - A `stale` NDJSON event is emitted when the threshold is exceeded, containing `threshold`, `idle_duration`, `error_count`, and `source` fields.
 - While `sync --follow` is running, a `HEARTBEAT` file is written to the store directory (at most once per minute) with the last observed follow activity timestamp in RFC 3339 format. External watchdogs or `wacli doctor` can read this as an activity marker; quiet healthy sessions may not update it because successful keepalives are silent, and keepalive health is reported separately through `stale` events.
 - `--events` emits one NDJSON lifecycle event per stderr line for machine consumers. Routine human progress/status lines, interrupt prompts, and command errors are emitted as events while events are enabled.
-- An `offline_sync_preview` event is emitted when the server announces the backlog it is about to replay after a reconnect, carrying `total`, `messages`, `receipts`, `notifications`, and `app_data_changes`; `offline_sync_completed` reports the final `count`. Without `--events` both print as a status line. A replay is how a device that was down catches up, so these name the moment a burst of arriving messages is history rather than live traffic: a consumer that also reads the event stream can bound the replay by the announced `messages` count, or simply wait for `offline_sync_completed`. Webhook payloads themselves are unchanged — a replayed message is delivered in exactly the shape a live one is.
+- `offline_sync_preview` reports the server's announced reconnect backlog with `total`, `messages`, `receipts`, `notifications`, and `app_data_changes`; `offline_sync_completed` reports the server's final `count`. Without `--events`, both print as status lines. Completion can arrive without a preview, including when there is no backlog.
+- These are server replay signals on stderr. Webhooks use a separate background queue, so completion does not mean queued HTTP deliveries have finished. Storage failures or webhook drops can also make delivery counts differ from the announced counts. Do not use these signals to classify individual webhook messages as replayed or live. Webhook payloads keep their existing shape.
 
 ## Webhook payloads
 
@@ -51,7 +52,9 @@ Webhook payloads remain flat JSON objects. Receipt and chat-presence payloads ca
 an `EventType` discriminator. Message payloads deliberately omit it so existing
 consumers retain the established object shape; a missing `EventType` means
 `message`. Every JID field uses the same identity namespace as the local store:
-known LIDs are resolved to phone JIDs, while unknown LIDs remain unchanged.
+known LIDs are resolved to phone JIDs, while unknown LIDs remain unchanged. Every
+`Timestamp` is UTC (RFC 3339, `Z`), independent of the host's zone, matching the
+store and the CLI's JSON output.
 
 Messages use the stored live message payload documented above:
 
